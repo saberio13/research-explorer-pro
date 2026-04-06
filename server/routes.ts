@@ -126,7 +126,7 @@ Rules:
 - Include 5-8 papers. Use real papers you know from training data with real DOIs/URLs when possible.
 - consensusMeter percentages must sum to 100
 - Be factual and evidence-based. If you are uncertain about specific citation details, note it in the abstract.
-- Output ONLY the JSON object, nothing else.`;
+- Output ONLY the raw JSON object. No markdown, no code fences, no backticks, no explanation. Start with { and end with }.`;
 }
 
 function sanitizeJsonString(raw: string): string {
@@ -192,14 +192,32 @@ export async function registerRoutes(
 
       const resultText = await callLLM(prompt, 4096);
 
+      // Strip markdown code fences if present
+      let cleanText = resultText
+        .replace(/```json\s*/gi, '')
+        .replace(/```\s*/g, '')
+        .trim();
+
       // Extract JSON from response
-      const jsonMatch = resultText.match(/\{[\s\S]*\}/);
+      const jsonMatch = cleanText.match(/\{[\s\S]*\}/);
       if (!jsonMatch) {
+        console.error("No JSON found in response:", cleanText.substring(0, 200));
         return res.status(500).json({ error: "Could not parse AI response" });
       }
 
       const sanitized = sanitizeJsonString(jsonMatch[0]);
-      const result = JSON.parse(sanitized);
+      
+      let result;
+      try {
+        result = JSON.parse(sanitized);
+      } catch (parseErr: any) {
+        // Try a more aggressive cleanup: remove trailing commas before ] or }
+        const fixedJson = sanitized
+          .replace(/,\s*]/g, ']')
+          .replace(/,\s*}/g, '}')
+          .replace(/([\]"\d])(\s*")/g, '$1,$2'); // add missing commas
+        result = JSON.parse(fixedJson);
+      }
 
       // Save to history
       await storage.createSearch({
