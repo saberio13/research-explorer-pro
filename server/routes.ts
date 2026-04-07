@@ -38,6 +38,9 @@ async function callLLM(prompt: string, maxTokens: number = 4096, jsonMode: boole
     };
     if (jsonMode) {
       generationConfig.responseMimeType = "application/json";
+      // Disable thinking for JSON mode: thinking tokens consume output budget
+      // and cause JSON truncation on gemini-2.5-flash (thinking model)
+      generationConfig.thinkingConfig = { thinkingBudget: 0 };
     }
     const model = genAI.getGenerativeModel({
       model: "gemini-2.5-flash",
