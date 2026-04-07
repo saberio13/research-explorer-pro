@@ -198,7 +198,7 @@ export async function registerRoutes(
       const { query, searchType, yearRange, studyTypes } = parsed.data;
       const prompt = buildSearchPrompt(query, searchType, yearRange, studyTypes);
 
-      const resultText = await callLLM(prompt, 4096, true);
+      const resultText = await callLLM(prompt, 8192, true);
 
       // Strip markdown code fences if present
       let cleanText = resultText
