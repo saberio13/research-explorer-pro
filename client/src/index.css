@@ -198,3 +198,11 @@
     pointer-events: none;
   }
 }
+
+@media print {
+  .no-print { display: none !important; }
+  header, nav { display: none !important; }
+  body { background: white !important; color: black !important; }
+  .bg-card { border: 1px solid #ddd !important; background: white !important; }
+  .bg-background { background: white !important; }
+}

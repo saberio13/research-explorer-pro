@@ -9,12 +9,14 @@ import { LibraryView } from "@/components/library-view";
 import { HistoryPanel } from "@/components/history-panel";
 import { SearchSkeleton } from "@/components/search-skeleton";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { ComparisonModal } from "@/components/comparison-modal";
 import {
   BookOpen,
   Library,
   History,
   Search,
   FlaskConical,
+  AlertCircle,
 } from "lucide-react";
 
 type ViewMode = "search" | "library" | "history";
@@ -28,6 +30,37 @@ export default function Home() {
   const [yearFrom, setYearFrom] = useState<number | undefined>();
   const [yearTo, setYearTo] = useState<number | undefined>();
   const [selectedStudyTypes, setSelectedStudyTypes] = useState<string[]>([]);
+  const [compareModalPapers, setCompareModalPapers] = useState<PaperResult[] | null>(null);
+  const [pendingQuery, setPendingQuery] = useState<string | null>(null);
+
+  // Read search params from URL hash on mount
+  useEffect(() => {
+    const hash = window.location.hash;
+    const match = hash.match(/\/search\?(.+)/);
+    if (match) {
+      const p = new URLSearchParams(match[1]);
+      const q = p.get("q");
+      const t = p.get("type") as any;
+      if (q) {
+        setSearchQuery(q);
+        setSearchType(t || "question");
+        setPendingQuery(q);
+      }
+    }
+  }, []);
+
+  // Trigger search when pendingQuery is set (after state update)
+  useEffect(() => {
+    if (pendingQuery !== null && searchQuery === pendingQuery) {
+      searchMutation.mutate({
+        query: pendingQuery,
+        searchType,
+        yearRange: yearFrom || yearTo ? { from: yearFrom, to: yearTo } : undefined,
+        studyTypes: selectedStudyTypes.length > 0 ? selectedStudyTypes : undefined,
+      });
+      setPendingQuery(null);
+    }
+  }, [searchQuery, pendingQuery]);
 
   const { data: savedPapers = [] } = useQuery<SavedPaper[]>({
     queryKey: ["/api/saved-papers"],
@@ -50,6 +83,9 @@ export default function Home() {
     onSuccess: (data) => {
       setSearchResults(data);
       queryClient.invalidateQueries({ queryKey: ["/api/history"] });
+      // Encode search in URL for sharing
+      const params = new URLSearchParams({ q: searchQuery, type: searchType });
+      window.location.hash = `/search?${params}`;
     },
   });
 
@@ -66,6 +102,16 @@ export default function Home() {
   const deleteSavedPaperMutation = useMutation({
     mutationFn: async (id: number) => {
       await apiRequest("DELETE", `/api/saved-papers/${id}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/saved-papers"] });
+    },
+  });
+
+  const updateNotesMutation = useMutation({
+    mutationFn: async ({ id, notes }: { id: number; notes: string }) => {
+      const res = await apiRequest("PATCH", `/api/saved-papers/${id}`, { notes });
+      return res.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/saved-papers"] });
@@ -101,9 +147,7 @@ export default function Home() {
     }
   };
 
-  const isPaperSaved = (title: string) => {
-    return savedPapers.some((p) => p.title === title);
-  };
+  const isPaperSaved = (title: string) => savedPapers.some((p) => p.title === title);
 
   const loadFromHistory = (item: any) => {
     try {
@@ -114,12 +158,17 @@ export default function Home() {
     } catch {}
   };
 
+  const handleRelatedSearch = (q: string) => {
+    setSearchQuery(q);
+    setPendingQuery(q);
+  };
+
   const hasResults = searchResults && !searchMutation.isPending;
 
   return (
     <div className="min-h-screen bg-background">
       {/* Header */}
-      <header className="sticky top-0 z-40 border-b border-border bg-background/80 backdrop-blur-md">
+      <header className="sticky top-0 z-40 border-b border-border bg-background/80 backdrop-blur-md no-print">
         <div className="max-w-6xl mx-auto px-4 sm:px-6">
           <div className="flex items-center justify-between h-14">
             <button
@@ -127,16 +176,14 @@ export default function Home() {
                 setSearchResults(null);
                 setViewMode("search");
                 searchMutation.reset();
+                window.location.hash = "";
               }}
               className="flex items-center gap-2 group"
-              data-testid="logo-button"
             >
               <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center">
                 <FlaskConical className="w-4 h-4 text-primary-foreground" />
               </div>
-              <span className="font-semibold text-foreground text-sm">
-                Research Explorer
-              </span>
+              <span className="font-semibold text-foreground text-sm">Research Explorer</span>
             </button>
 
             <nav className="flex items-center gap-0.5 sm:gap-1">
@@ -147,7 +194,6 @@ export default function Home() {
                     ? "bg-accent text-foreground font-medium"
                     : "text-muted-foreground hover:text-foreground"
                 }`}
-                data-testid="nav-search"
               >
                 <Search className="w-3.5 h-3.5" />
                 <span className="hidden sm:inline">Search</span>
@@ -159,7 +205,6 @@ export default function Home() {
                     ? "bg-accent text-foreground font-medium"
                     : "text-muted-foreground hover:text-foreground"
                 }`}
-                data-testid="nav-library"
               >
                 <Library className="w-3.5 h-3.5" />
                 <span className="hidden sm:inline">Library</span>
@@ -176,7 +221,6 @@ export default function Home() {
                     ? "bg-accent text-foreground font-medium"
                     : "text-muted-foreground hover:text-foreground"
                 }`}
-                data-testid="nav-history"
               >
                 <History className="w-3.5 h-3.5" />
                 <span className="hidden sm:inline">History</span>
@@ -192,7 +236,6 @@ export default function Home() {
       <main className="max-w-6xl mx-auto px-4 sm:px-6 py-6">
         {viewMode === "search" && (
           <>
-            {/* Search Section */}
             {!hasResults && !searchMutation.isPending && (
               <div className="flex flex-col items-center pt-16 pb-8">
                 <div className="w-14 h-14 rounded-2xl bg-primary/10 flex items-center justify-center mb-5">
@@ -228,19 +271,32 @@ export default function Home() {
             {searchMutation.isPending && <SearchSkeleton />}
 
             {searchMutation.isError && (
-              <div className="max-w-2xl mx-auto mt-6 p-4 rounded-lg bg-destructive/10 border border-destructive/20">
-                <p className="text-sm text-destructive">
-                  Search failed. Please try again with a different query.
-                </p>
+              <div className="max-w-2xl mx-auto mt-6 p-4 rounded-lg bg-destructive/10 border border-destructive/20 flex items-start gap-3">
+                <AlertCircle className="w-4 h-4 text-destructive flex-shrink-0 mt-0.5" />
+                <div className="flex-1">
+                  <p className="text-sm font-medium text-destructive">Search failed</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    {(searchMutation.error as any)?.message || "Please try a different query."}
+                  </p>
+                </div>
+                <button
+                  onClick={handleSearch}
+                  className="text-xs font-medium text-destructive hover:underline flex-shrink-0"
+                >
+                  Retry
+                </button>
               </div>
             )}
 
             {hasResults && (
               <ResultsView
                 results={searchResults}
+                query={searchQuery}
                 onSelectPaper={setSelectedPaper}
                 onSavePaper={handleSavePaper}
                 isPaperSaved={isPaperSaved}
+                onRelatedSearch={handleRelatedSearch}
+                onComparePapers={setCompareModalPapers}
               />
             )}
           </>
@@ -267,6 +323,7 @@ export default function Home() {
               };
               setSelectedPaper(p);
             }}
+            onUpdateNotes={(id, notes) => updateNotesMutation.mutate({ id, notes })}
           />
         )}
 
@@ -286,6 +343,14 @@ export default function Home() {
           isSaved={isPaperSaved(selectedPaper.title)}
           onSave={() => handleSavePaper(selectedPaper)}
           onClose={() => setSelectedPaper(null)}
+        />
+      )}
+
+      {/* Comparison Modal */}
+      {compareModalPapers && (
+        <ComparisonModal
+          papers={compareModalPapers}
+          onClose={() => setCompareModalPapers(null)}
         />
       )}
     </div>

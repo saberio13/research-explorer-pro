@@ -8,6 +8,7 @@ export const searches = sqliteTable("searches", {
   query: text("query").notNull(),
   resultJson: text("result_json").notNull(),
   createdAt: text("created_at").notNull(),
+  cacheKey: text("cache_key"),
 });
 
 // Saved papers
@@ -27,6 +28,7 @@ export const savedPapers = sqliteTable("saved_papers", {
   url: text("url"),
   searchQuery: text("search_query"),
   savedAt: text("saved_at").notNull(),
+  notes: text("notes"),
 });
 
 export const insertSearchSchema = createInsertSchema(searches).omit({ id: true });
@@ -76,6 +78,8 @@ export interface SearchResult {
   papers: PaperResult[];
   keyFindings: Array<{ text: string; confidence: "high" | "medium" | "low" }>;
   conclusion: string;
+  relatedQueries?: string[];
+  cached?: boolean;
 }
 
 export interface AskPaperRequest {

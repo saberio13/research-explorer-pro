@@ -4,7 +4,7 @@ import {
 } from "@shared/schema";
 import { drizzle } from "drizzle-orm/better-sqlite3";
 import Database from "better-sqlite3";
-import { eq, desc } from "drizzle-orm";
+import { eq, desc, and, gt } from "drizzle-orm";
 
 const sqlite = new Database("data.db");
 sqlite.pragma("journal_mode = WAL");
@@ -17,12 +17,14 @@ export interface IStorage {
   getSearches(): Promise<Search[]>;
   getSearchById(id: number): Promise<Search | undefined>;
   deleteSearch(id: number): Promise<void>;
+  findCachedSearch(cacheKey: string): Promise<Search | undefined>;
 
   // Saved papers
   savePaper(paper: InsertSavedPaper): Promise<SavedPaper>;
   getSavedPapers(): Promise<SavedPaper[]>;
   deleteSavedPaper(id: number): Promise<void>;
   isSaved(title: string): Promise<boolean>;
+  updatePaperNotes(id: number, notes: string): Promise<SavedPaper>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -42,6 +44,14 @@ export class DatabaseStorage implements IStorage {
     db.delete(searches).where(eq(searches.id, id)).run();
   }
 
+  async findCachedSearch(cacheKey: string): Promise<Search | undefined> {
+    const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    return db.select().from(searches)
+      .where(and(eq(searches.cacheKey, cacheKey), gt(searches.createdAt, cutoff)))
+      .orderBy(desc(searches.id))
+      .get();
+  }
+
   async savePaper(paper: InsertSavedPaper): Promise<SavedPaper> {
     return db.insert(savedPapers).values(paper).returning().get();
   }
@@ -57,6 +67,10 @@ export class DatabaseStorage implements IStorage {
   async isSaved(title: string): Promise<boolean> {
     const result = db.select().from(savedPapers).where(eq(savedPapers.title, title)).get();
     return !!result;
+  }
+
+  async updatePaperNotes(id: number, notes: string): Promise<SavedPaper> {
+    return db.update(savedPapers).set({ notes }).where(eq(savedPapers.id, id)).returning().get();
   }
 }
 

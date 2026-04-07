@@ -22,7 +22,7 @@ if (!genAI && process.env.ANTHROPIC_API_KEY) {
   try {
     const Anthropic = require("@anthropic-ai/sdk");
     anthropicClient = new Anthropic.default();
-    console.log("Using Anthropic API (claude_sonnet_4_6)");
+    console.log("Using Anthropic API (claude-sonnet-4-6)");
   } catch (e) {
     console.error("Failed to load Anthropic SDK:", e);
   }
@@ -127,7 +127,8 @@ You MUST respond with ONLY a valid JSON object — no markdown, no code fences, 
     {"text": "Key finding 1", "confidence": "high"},
     {"text": "Key finding 2", "confidence": "medium"}
   ],
-  "conclusion": "Overall conclusion based on the evidence"
+  "conclusion": "Overall conclusion based on the evidence",
+  "relatedQueries": ["related query 1", "related query 2", "related query 3"]
 }
 
 Rules:
@@ -137,6 +138,7 @@ Rules:
 - Include 5-8 papers. Use real papers you know from training data with real DOIs/URLs when possible.
 - consensusMeter percentages must sum to 100
 - Be factual and evidence-based. If you are uncertain about specific citation details, note it in the abstract.
+- relatedQueries: 3-5 related search queries the user might want to explore next
 - Output ONLY the raw JSON object. No markdown, no code fences, no backticks, no explanation. Start with { and end with }.`;
 }
 
@@ -186,7 +188,7 @@ export async function registerRoutes(
     res.json({
       ok: true,
       provider: genAI ? "gemini" : anthropicClient ? "anthropic" : "none",
-      model: genAI ? "gemini-2.5-flash" : "claude_sonnet_4_6",
+      model: genAI ? "gemini-2.5-flash" : "claude-sonnet-4-6",
     });
   });
 
@@ -199,8 +201,16 @@ export async function registerRoutes(
       }
 
       const { query, searchType, yearRange, studyTypes } = parsed.data;
-      const prompt = buildSearchPrompt(query, searchType, yearRange, studyTypes);
 
+      // Check cache first
+      const cacheKey = JSON.stringify({ query, searchType, yearRange, studyTypes });
+      const cached = await storage.findCachedSearch(cacheKey);
+      if (cached) {
+        const cachedResult = JSON.parse(cached.resultJson);
+        return res.json({ ...cachedResult, cached: true });
+      }
+
+      const prompt = buildSearchPrompt(query, searchType, yearRange, studyTypes);
       const resultText = await callLLM(prompt, 8192, true);
 
       // Strip markdown code fences if present
@@ -217,16 +227,15 @@ export async function registerRoutes(
       }
 
       const sanitized = sanitizeJsonString(jsonMatch[0]);
-      
+
       let result;
       try {
         result = JSON.parse(sanitized);
       } catch (parseErr: any) {
-        // Try a more aggressive cleanup: remove trailing commas before ] or }
         const fixedJson = sanitized
           .replace(/,\s*]/g, ']')
           .replace(/,\s*}/g, '}')
-          .replace(/([\]"\d])(\s*")/g, '$1,$2'); // add missing commas
+          .replace(/([\]"\d])(\s*")/g, '$1,$2');
         try {
           result = JSON.parse(fixedJson);
         } catch (fixedErr: any) {
@@ -237,17 +246,24 @@ export async function registerRoutes(
         }
       }
 
-      // Save to history
+      // Save to history + cache
       await storage.createSearch({
         query,
         resultJson: JSON.stringify(result),
         createdAt: new Date().toISOString(),
+        cacheKey,
       });
 
       res.json(result);
     } catch (err: any) {
       console.error("Search error:", err);
-      res.status(500).json({ error: "Search failed. Please try again.", details: err.message });
+      const isParseError = err.message?.includes("JSON parse failed");
+      res.status(500).json({
+        error: isParseError
+          ? "The AI returned an unexpected response. Please try again."
+          : "Search failed. Please try again.",
+        details: err.message,
+      });
     }
   });
 
@@ -308,6 +324,16 @@ Provide a helpful, evidence-based answer. Be concise and accurate. If you're not
       res.json(paper);
     } catch (err: any) {
       res.status(500).json({ error: "Failed to save paper." });
+    }
+  });
+
+  app.patch("/api/saved-papers/:id", async (req, res) => {
+    try {
+      const { notes } = req.body;
+      const paper = await storage.updatePaperNotes(parseInt(req.params.id), notes ?? "");
+      res.json(paper);
+    } catch (err: any) {
+      res.status(500).json({ error: "Failed to update notes." });
     }
   });
 

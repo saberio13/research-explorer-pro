@@ -14,6 +14,8 @@ import {
   Lightbulb,
   Loader2,
   Send,
+  Copy,
+  Check,
 } from "lucide-react";
 
 interface PaperModalProps {
@@ -26,6 +28,7 @@ interface PaperModalProps {
 export function PaperModal({ paper, isSaved, onSave, onClose }: PaperModalProps) {
   const [askQuery, setAskQuery] = useState("");
   const [askResponse, setAskResponse] = useState<string | null>(null);
+  const [citationCopied, setCitationCopied] = useState(false);
 
   const askMutation = useMutation({
     mutationFn: async (question: string) => {
@@ -96,7 +99,7 @@ export function PaperModal({ paper, isSaved, onSave, onClose }: PaperModalProps)
           </div>
 
           {/* Actions */}
-          <div className="flex gap-2 mt-3">
+          <div className="flex flex-wrap gap-2 mt-3">
             <button
               onClick={onSave}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
@@ -120,6 +123,18 @@ export function PaperModal({ paper, isSaved, onSave, onClose }: PaperModalProps)
                 View Source
               </a>
             )}
+            <button
+              onClick={() => {
+                const apa = `${paper.authors.join(", ")} (${paper.year}). ${paper.title}. ${paper.journal}. ${paper.url}`;
+                navigator.clipboard.writeText(apa);
+                setCitationCopied(true);
+                setTimeout(() => setCitationCopied(false), 2000);
+              }}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-secondary text-secondary-foreground rounded-md text-xs font-medium hover:bg-accent transition-colors"
+            >
+              {citationCopied ? <Check className="w-3.5 h-3.5 text-green-500" /> : <Copy className="w-3.5 h-3.5" />}
+              {citationCopied ? "Copied!" : "Copy Citation"}
+            </button>
           </div>
         </div>
 

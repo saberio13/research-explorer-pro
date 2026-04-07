@@ -1,13 +1,26 @@
+import { useState, useEffect } from "react";
 import { Loader2 } from "lucide-react";
 
+const messages = [
+  "Searching research literature…",
+  "Analyzing papers…",
+  "Synthesizing findings…",
+];
+
 export function SearchSkeleton() {
+  const [msgIdx, setMsgIdx] = useState(0);
+
+  useEffect(() => {
+    const t = setInterval(() => setMsgIdx(i => (i + 1) % messages.length), 3000);
+    return () => clearInterval(t);
+  }, []);
+
   return (
     <div className="space-y-6">
-      {/* Status */}
       <div className="flex items-center justify-center gap-2 py-4">
         <Loader2 className="w-4 h-4 text-primary animate-spin" />
-        <span className="text-sm text-muted-foreground">
-          Searching research papers... this may take 15-30 seconds
+        <span className="text-sm text-muted-foreground transition-all duration-300">
+          {messages[msgIdx]}
         </span>
       </div>
 
