@@ -28,30 +28,43 @@ if (!genAI && process.env.ANTHROPIC_API_KEY) {
   }
 }
 
+const GEMINI_MODELS = ["gemini-2.5-flash", "gemini-2.0-flash"];
+
+async function callGemini(prompt: string, maxTokens: number, jsonMode: boolean): Promise<string> {
+  const generationConfig: any = { temperature: 0.7, maxOutputTokens: maxTokens };
+  if (jsonMode) {
+    generationConfig.responseMimeType = "application/json";
+    generationConfig.thinkingConfig = { thinkingBudget: 0 };
+  }
+
+  for (const modelName of GEMINI_MODELS) {
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        const model = genAI.getGenerativeModel({ model: modelName, generationConfig });
+        const result = await model.generateContent(prompt);
+        const candidate = result.response.candidates?.[0];
+        if (!candidate || candidate.finishReason === "SAFETY" || candidate.finishReason === "RECITATION") {
+          throw new Error(`Gemini response blocked: ${candidate?.finishReason ?? "no candidates"}`);
+        }
+        return result.response.text();
+      } catch (err: any) {
+        const is503 = err?.message?.includes("503") || err?.message?.includes("Service Unavailable") || err?.message?.includes("high demand");
+        if (is503 && attempt < 3) {
+          await new Promise(r => setTimeout(r, attempt * 2000));
+          continue;
+        }
+        if (is503) break; // try next model
+        throw err; // non-503 error: propagate immediately
+      }
+    }
+  }
+  throw new Error("Gemini is temporarily unavailable. Please try again in a moment.");
+}
+
 // Unified LLM call function
 async function callLLM(prompt: string, maxTokens: number = 4096, jsonMode: boolean = false): Promise<string> {
   if (genAI) {
-    // Gemini path
-    const generationConfig: any = {
-      temperature: 0.7,
-      maxOutputTokens: maxTokens,
-    };
-    if (jsonMode) {
-      generationConfig.responseMimeType = "application/json";
-      // Disable thinking for JSON mode: thinking tokens consume output budget
-      // and cause JSON truncation on gemini-2.5-flash (thinking model)
-      generationConfig.thinkingConfig = { thinkingBudget: 0 };
-    }
-    const model = genAI.getGenerativeModel({
-      model: "gemini-2.5-flash",
-      generationConfig,
-    });
-    const result = await model.generateContent(prompt);
-    const candidate = result.response.candidates?.[0];
-    if (!candidate || candidate.finishReason === "SAFETY" || candidate.finishReason === "RECITATION") {
-      throw new Error(`Gemini response blocked: ${candidate?.finishReason ?? "no candidates"}`);
-    }
-    return result.response.text();
+    return callGemini(prompt, maxTokens, jsonMode);
   } else if (anthropicClient) {
     // Anthropic path (sandbox fallback)
     const message = await anthropicClient.messages.create({
@@ -258,8 +271,11 @@ export async function registerRoutes(
     } catch (err: any) {
       console.error("Search error:", err);
       const isParseError = err.message?.includes("JSON parse failed");
+      const isOverloaded = err.message?.includes("temporarily unavailable") || err.message?.includes("503") || err.message?.includes("high demand");
       res.status(500).json({
-        error: isParseError
+        error: isOverloaded
+          ? "Gemini is temporarily overloaded. Please wait a moment and try again."
+          : isParseError
           ? "The AI returned an unexpected response. Please try again."
           : "Search failed. Please try again.",
         details: err.message,
