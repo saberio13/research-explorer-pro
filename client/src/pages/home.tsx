@@ -36,7 +36,7 @@ export default function Home() {
   // Read search params from URL hash on mount
   useEffect(() => {
     const hash = window.location.hash;
-    const match = hash.match(/\/search\?(.+)/);
+    const match = hash.match(/\/\?(.+)/);
     if (match) {
       const p = new URLSearchParams(match[1]);
       const q = p.get("q");
@@ -83,9 +83,9 @@ export default function Home() {
     onSuccess: (data) => {
       setSearchResults(data);
       queryClient.invalidateQueries({ queryKey: ["/api/history"] });
-      // Encode search in URL for sharing
+      // Encode search in URL for sharing (stay on home route)
       const params = new URLSearchParams({ q: searchQuery, type: searchType });
-      window.location.hash = `/search?${params}`;
+      window.history.replaceState(null, "", `${window.location.pathname}#/?${params}`);
     },
   });
 
@@ -176,7 +176,7 @@ export default function Home() {
                 setSearchResults(null);
                 setViewMode("search");
                 searchMutation.reset();
-                window.location.hash = "";
+                window.history.replaceState(null, "", window.location.pathname + "#/");
               }}
               className="flex items-center gap-2 group"
             >
