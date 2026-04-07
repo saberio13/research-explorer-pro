@@ -9,6 +9,35 @@ import { eq, desc, and, gt } from "drizzle-orm";
 const sqlite = new Database("data.db");
 sqlite.pragma("journal_mode = WAL");
 
+// Auto-create tables on startup (safe to run every time)
+sqlite.exec(`
+  CREATE TABLE IF NOT EXISTS searches (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    query TEXT NOT NULL,
+    result_json TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    cache_key TEXT
+  );
+  CREATE TABLE IF NOT EXISTS saved_papers (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    title TEXT NOT NULL,
+    authors TEXT NOT NULL,
+    journal TEXT,
+    year INTEGER,
+    citations INTEGER,
+    stance TEXT,
+    takeaway TEXT,
+    abstract TEXT,
+    methodology TEXT,
+    sample_size TEXT,
+    study_type TEXT,
+    url TEXT,
+    search_query TEXT,
+    saved_at TEXT NOT NULL,
+    notes TEXT
+  );
+`);
+
 export const db = drizzle(sqlite);
 
 export interface IStorage {
