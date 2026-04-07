@@ -29,22 +29,30 @@ if (!genAI && process.env.ANTHROPIC_API_KEY) {
 }
 
 // Unified LLM call function
-async function callLLM(prompt: string, maxTokens: number = 4096): Promise<string> {
+async function callLLM(prompt: string, maxTokens: number = 4096, jsonMode: boolean = false): Promise<string> {
   if (genAI) {
     // Gemini path
+    const generationConfig: any = {
+      temperature: 0.7,
+      maxOutputTokens: maxTokens,
+    };
+    if (jsonMode) {
+      generationConfig.responseMimeType = "application/json";
+    }
     const model = genAI.getGenerativeModel({
       model: "gemini-2.5-flash",
-      generationConfig: {
-        temperature: 0.7,
-        maxOutputTokens: maxTokens,
-      },
+      generationConfig,
     });
     const result = await model.generateContent(prompt);
+    const candidate = result.response.candidates?.[0];
+    if (!candidate || candidate.finishReason === "SAFETY" || candidate.finishReason === "RECITATION") {
+      throw new Error(`Gemini response blocked: ${candidate?.finishReason ?? "no candidates"}`);
+    }
     return result.response.text();
   } else if (anthropicClient) {
     // Anthropic path (sandbox fallback)
     const message = await anthropicClient.messages.create({
-      model: "claude_sonnet_4_6",
+      model: "claude-sonnet-4-6",
       max_tokens: maxTokens,
       messages: [{ role: "user", content: prompt }],
     });
@@ -190,7 +198,7 @@ export async function registerRoutes(
       const { query, searchType, yearRange, studyTypes } = parsed.data;
       const prompt = buildSearchPrompt(query, searchType, yearRange, studyTypes);
 
-      const resultText = await callLLM(prompt, 4096);
+      const resultText = await callLLM(prompt, 4096, true);
 
       // Strip markdown code fences if present
       let cleanText = resultText
@@ -216,7 +224,14 @@ export async function registerRoutes(
           .replace(/,\s*]/g, ']')
           .replace(/,\s*}/g, '}')
           .replace(/([\]"\d])(\s*")/g, '$1,$2'); // add missing commas
-        result = JSON.parse(fixedJson);
+        try {
+          result = JSON.parse(fixedJson);
+        } catch (fixedErr: any) {
+          console.error("JSON parse failed after cleanup. Original error:", parseErr.message);
+          console.error("Cleanup error:", fixedErr.message);
+          console.error("Raw text (first 500):", resultText.substring(0, 500));
+          throw new Error(`JSON parse failed: ${fixedErr.message}`);
+        }
       }
 
       // Save to history
